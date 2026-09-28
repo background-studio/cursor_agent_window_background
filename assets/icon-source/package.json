@@ -1,0 +1,15 @@
+{
+  "name": "cursor-agent-icon-source",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Layered assets for the Cursor Agent plugin icon",
+  "scripts": {
+    "prepare-background": "node prepare-background.mjs",
+    "compose": "node compose-icon.mjs",
+    "verify": "node verify-icon.mjs"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.4"
+  }
+}

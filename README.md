@@ -1,6 +1,6 @@
 # Cursor Agent Background Studio
 
-Background Studio 的 Cursor Agent 窗口背景插件，版本 0.1.0。
+Background Studio 的 Cursor Agent 窗口背景插件，版本 0.1.1。
 
 它只给带 `.agent-panel` 的 Agent 窗口贴背景。编辑器窗口不注入。调试口只监听 `127.0.0.1`，用户目录仍用原来的 `%APPDATA%\Cursor`，不另开空配置。
 
