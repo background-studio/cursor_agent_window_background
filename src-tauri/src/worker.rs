@@ -104,6 +104,9 @@ impl WorkerState {
                 script: Arc::from(script),
             });
         }
+        if self.paused.load(Ordering::SeqCst) {
+            return self.status_value();
+        }
         self.set_message("waiting", "背景已配置，等待 Cursor Agent 窗口");
         let _ = self.sync_injection(false);
         self.status_value()

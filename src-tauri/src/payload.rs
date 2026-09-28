@@ -106,6 +106,11 @@ body.bc-window {{
   position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
   opacity: var(--cbg-opacity);
 }}
+html:has(#background-cover-style) body.bc-window::before {{
+  content: none !important;
+  display: none !important;
+  background-image: none !important;
+}}
 #cbg-cursor-agent-media {{
   width: 100%; height: 100%; object-fit: {fit}; object-position: {x}% {y}%;
   transform: scale({scale}); transform-origin: center; filter: blur({blur}px);
@@ -216,6 +221,7 @@ mod tests {
         assert!(script.contains(".ui-tray"));
         assert!(script.contains("--glass-chat-bubble-background"));
         assert!(script.contains("glass-in-app-menubar"));
+        assert!(script.contains("#background-cover-style) body.bc-window::before"));
         assert!(script.contains("installed:false"));
     }
 }
