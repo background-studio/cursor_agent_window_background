@@ -1,12 +1,13 @@
 use std::{
     net::TcpListener,
+    os::windows::process::CommandExt,
     path::PathBuf,
     process::Command,
     thread,
     time::{Duration, Instant},
 };
 
-use serde_json::Value;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug)]
 pub struct CursorProcess {
@@ -16,49 +17,155 @@ pub struct CursorProcess {
 }
 
 pub fn list_processes() -> Result<Vec<CursorProcess>, String> {
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name = 'Cursor.exe'\" | Select-Object ProcessId,ExecutablePath,CommandLine | ConvertTo-Json -Compress",
-        ])
-        .output()
-        .map_err(|error| format!("读取 Cursor 进程失败：{error}"))?;
-    if !output.status.success() {
-        return Err("读取 Cursor 进程失败。".to_string());
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let text = text.trim();
-    if text.is_empty() {
-        return Ok(Vec::new());
-    }
-    let value: Value =
-        serde_json::from_str(text).map_err(|error| format!("解析进程列表失败：{error}"))?;
-    let items = match value {
-        Value::Array(items) => items,
-        other => vec![other],
-    };
     let mut processes = Vec::new();
-    for item in items {
-        let Some(pid) = item.get("ProcessId").and_then(Value::as_u64) else {
-            continue;
+    win::for_each_process(|pid, name| {
+        if !name.eq_ignore_ascii_case("Cursor.exe") {
+            return;
+        }
+        let Some(handle) = win::open_process(pid) else {
+            return;
         };
         processes.push(CursorProcess {
-            pid: pid as u32,
-            executable: item
-                .get("ExecutablePath")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
-            command_line: item
-                .get("CommandLine")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            pid,
+            executable: win::image_path(&handle).unwrap_or_default(),
+            command_line: win::command_line(&handle).unwrap_or_default(),
         });
-    }
+    })?;
     Ok(processes)
+}
+
+mod win {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        maximum_length: u16,
+        buffer: *const u16,
+    }
+
+    #[link(name = "ntdll")]
+    extern "system" {
+        fn NtQueryInformationProcess(
+            process_handle: HANDLE,
+            information_class: u32,
+            process_information: *mut core::ffi::c_void,
+            process_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    pub struct HandleGuard(HANDLE);
+
+    impl Drop for HandleGuard {
+        fn drop(&mut self) {
+            if !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE {
+                unsafe {
+                    CloseHandle(self.0);
+                }
+            }
+        }
+    }
+
+    fn utf16_to_string(buffer: &[u16]) -> String {
+        let end = buffer
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(buffer.len());
+        String::from_utf16_lossy(&buffer[..end])
+    }
+
+    pub fn open_process(pid: u32) -> Option<HandleGuard> {
+        if pid == 0 {
+            return None;
+        }
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        Some(HandleGuard(handle))
+    }
+
+    pub fn image_path(process: &HandleGuard) -> Option<String> {
+        let mut buffer = [0u16; 1024];
+        let mut size = buffer.len() as u32;
+        let ok =
+            unsafe { QueryFullProcessImageNameW(process.0, 0, buffer.as_mut_ptr(), &mut size) };
+        if ok == 0 || size == 0 {
+            return None;
+        }
+        Some(String::from_utf16_lossy(&buffer[..size as usize]))
+    }
+
+    pub fn command_line(process: &HandleGuard) -> Option<String> {
+        let mut needed = 0u32;
+        unsafe {
+            NtQueryInformationProcess(
+                process.0,
+                PROCESS_COMMAND_LINE_INFORMATION,
+                std::ptr::null_mut(),
+                0,
+                &mut needed,
+            );
+        }
+        let size = if needed == 0 { 8192 } else { needed.max(16) };
+        let mut buffer = vec![0u8; size as usize];
+        let mut returned = 0u32;
+        let status = unsafe {
+            NtQueryInformationProcess(
+                process.0,
+                PROCESS_COMMAND_LINE_INFORMATION,
+                buffer.as_mut_ptr().cast(),
+                buffer.len() as u32,
+                &mut returned,
+            )
+        };
+        if status != 0 || buffer.len() < std::mem::size_of::<UnicodeString>() {
+            return None;
+        }
+        let header = unsafe { &*(buffer.as_ptr() as *const UnicodeString) };
+        if header.buffer.is_null() || header.length == 0 {
+            return None;
+        }
+        let units = (header.length as usize) / 2;
+        let slice = unsafe { std::slice::from_raw_parts(header.buffer, units) };
+        Some(String::from_utf16_lossy(slice))
+    }
+
+    pub fn for_each_process(mut visit: impl FnMut(u32, &str)) -> Result<(), String> {
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+            return Err("无法创建进程快照。".to_string());
+        }
+        let _guard = HandleGuard(snapshot);
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            cntUsage: 0,
+            th32ProcessID: 0,
+            th32DefaultHeapID: 0,
+            th32ModuleID: 0,
+            cntThreads: 0,
+            th32ParentProcessID: 0,
+            pcPriClassBase: 0,
+            dwFlags: 0,
+            szExeFile: [0; 260],
+        };
+        let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+        while ok != 0 {
+            visit(entry.th32ProcessID, &utf16_to_string(&entry.szExeFile));
+            ok = unsafe { Process32NextW(snapshot, &mut entry) };
+        }
+        Ok(())
+    }
 }
 
 pub fn browser_processes(processes: &[CursorProcess]) -> Vec<CursorProcess> {
@@ -167,6 +274,7 @@ pub fn request_close(processes: &[CursorProcess]) -> Result<(), String> {
     for process in processes {
         let _ = Command::new("taskkill.exe")
             .args(["/PID", &process.pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
     let deadline = Instant::now() + Duration::from_secs(90);
@@ -203,6 +311,11 @@ pub fn launch(executable: &PathBuf, user_data: &PathBuf, port: u16) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lists_processes_in_process_without_helpers() {
+        assert!(list_processes().is_ok());
+    }
 
     #[test]
     fn parses_debug_port_and_ignores_helper_processes() {

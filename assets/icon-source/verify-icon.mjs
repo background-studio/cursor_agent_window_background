@@ -33,6 +33,18 @@ for (let alphaOffset = 3; alphaOffset < foreground.data.length; alphaOffset += 4
   opaqueMark = Math.max(opaqueMark, foreground.data[alphaOffset]);
 }
 assert.equal(maximumBackgroundAlpha, 102, 'Photo opacity must be exactly 40%.');
+
+// The photo layer may only change alpha. Its colours must match a plain resize of the source.
+const { data: plainPixels } = await sharp(path.join(assetDirectory, 'background-source.jpg'))
+  .resize(896, 896).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+for (const [column, row] of [[448, 448], [300, 300], [600, 250], [448, 700]]) {
+  const plainOffset = (row * 896 + column) * 4;
+  const layerOffset = ((row + 64) * 1024 + (column + 64)) * 4;
+  for (let channel = 0; channel < 3; channel += 1) {
+    const difference = Math.abs(plainPixels[plainOffset + channel] - background.data[layerOffset + channel]);
+    assert.ok(difference <= 2, `Photo colour changed at (${column}, ${row}) channel ${channel}.`);
+  }
+}
 assert.equal(opaqueMark, 255, 'The cursor mark must have an opaque stroke.');
 assert.equal(readAlpha(composite, 8, 8), 0, 'The icon corner outside the tile must stay transparent.');
 

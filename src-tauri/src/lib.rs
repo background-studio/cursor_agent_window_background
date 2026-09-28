@@ -8,13 +8,9 @@ mod plugin_ipc;
 mod protocol;
 mod worker;
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use worker::WorkerState;
-
-pub(crate) fn lock<T>(value: &Mutex<T>) -> Result<MutexGuard<'_, T>, String> {
-    value.lock().map_err(|_| "应用状态锁已损坏。".to_string())
-}
 
 pub async fn run() -> Result<(), String> {
     let state = Arc::new(WorkerState::load()?);

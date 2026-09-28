@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 const assetDirectory = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(assetDirectory, 'background-source.webp');
+const sourcePath = path.join(assetDirectory, 'background-source.jpg');
 const suppliedSourcePath = process.argv[2];
 
 if (suppliedSourcePath && path.resolve(suppliedSourcePath) !== sourcePath) {
@@ -17,21 +17,25 @@ const tileSize = canvasSize - tileInset * 2;
 const cornerRadius = 220;
 const backgroundOpacity = 0.4;
 
-// 2160x1208 landscape. Upper body (head through chest) sits right of center.
-// 1208x1208 at x=780 keeps the face, bow, and torso inside the square.
-const upperBody = { left: 780, top: 0, width: 1208, height: 1208 };
+const metadata = await sharp(sourcePath).metadata();
+if (metadata.width !== metadata.height) {
+  throw new Error(`The supplied artwork must already be square, got ${metadata.width}x${metadata.height}.`);
+}
 
+// Only the alpha channel changes; colour, brightness and crop stay as supplied.
 const roundedMask = Buffer.from(
   `<svg width="${tileSize}" height="${tileSize}">
     <rect width="${tileSize}" height="${tileSize}" rx="${cornerRadius}" fill="white"/>
   </svg>`,
 );
 
-const { data: backgroundPixels, info: backgroundInfo } = await sharp(sourcePath)
-  .rotate()
-  .extract(upperBody)
-  .resize(tileSize, tileSize, { fit: 'cover', position: 'centre' })
+const resizedTile = await sharp(sourcePath)
+  .resize(tileSize, tileSize)
   .ensureAlpha()
+  .png()
+  .toBuffer();
+
+const { data: backgroundPixels, info: backgroundInfo } = await sharp(resizedTile)
   .composite([{ input: roundedMask, blend: 'dest-in' }])
   .raw()
   .toBuffer({ resolveWithObject: true });
@@ -53,4 +57,4 @@ await sharp(backgroundPixels, { raw: backgroundInfo })
   .png()
   .toFile(path.join(assetDirectory, 'background-40.png'));
 
-console.log('Prepared background-40.png from the upper-body square, maximum alpha 102/255 (40%).');
+console.log('Prepared background-40.png: 1024x1024, source colours unchanged, maximum alpha 102/255 (40%).');

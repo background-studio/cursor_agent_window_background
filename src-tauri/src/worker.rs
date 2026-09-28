@@ -15,19 +15,19 @@ use crate::{
     cursor_host::{self, browser_processes},
     injector::{self},
     media::download_configured_media,
-    models::{DisplaySettings, MediaKind, RuntimeStatus},
+    models::RuntimeStatus,
+    payload::install_script,
     plugin::hello_result,
     protocol::parse_configure,
 };
 
 const MAX_INLINE_MEDIA: usize = 16 * 1024 * 1024;
 
+#[derive(Clone)]
 struct Session {
     revision: String,
     payload_revision: String,
-    kind: MediaKind,
-    display: DisplaySettings,
-    media_url: String,
+    script: Arc<str>,
 }
 
 struct Runtime {
@@ -90,14 +90,18 @@ impl WorkerState {
             spec.media.mime_type,
             STANDARD.encode(&bytes)
         );
+        let script = install_script(
+            &media_url,
+            &spec.media.kind,
+            &spec.display,
+            &payload_revision,
+        )?;
         {
             let mut session = self.session.lock().map_err(|_| "锁已损坏。".to_string())?;
             *session = Some(Session {
                 revision: spec.revision.clone(),
                 payload_revision,
-                kind: spec.media.kind.clone(),
-                display: spec.display,
-                media_url,
+                script: Arc::from(script),
             });
         }
         self.set_message("waiting", "背景已配置，等待 Cursor Agent 窗口");
@@ -255,13 +259,7 @@ impl WorkerState {
         let Some(session) = session else {
             return Ok(());
         };
-        let count = injector::inject_media(
-            port,
-            &session.media_url,
-            &session.kind,
-            &session.display,
-            &session.payload_revision,
-        )?;
+        let count = injector::inject_script(port, &session.script, &session.payload_revision)?;
         if let Ok(mut runtime) = self.runtime.lock() {
             runtime.port = Some(port);
             runtime.status.active_targets = count;
@@ -274,18 +272,6 @@ impl WorkerState {
             runtime.status.last_error = None;
         }
         Ok(())
-    }
-}
-
-impl Clone for Session {
-    fn clone(&self) -> Self {
-        Self {
-            revision: self.revision.clone(),
-            payload_revision: self.payload_revision.clone(),
-            kind: self.kind.clone(),
-            display: self.display.clone(),
-            media_url: self.media_url.clone(),
-        }
     }
 }
 

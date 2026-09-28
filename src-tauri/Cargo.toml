@@ -1,6 +1,6 @@
 [package]
 name = "cursor-agent-background-studio"
-version = "0.1.1"
+version = "0.1.2"
 description = "A headless Background Studio worker for the Cursor Agents window."
 authors = ["Background Studio contributors"]
 license = "MIT"
@@ -28,6 +28,7 @@ reqwest = { version = "0.13.3", default-features = false, features = ["blocking"
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tungstenite = { version = "0.29.0", default-features = false, features = ["handshake"] }
 base64 = "0.22.1"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
 
 [profile.release]
 codegen-units = 1

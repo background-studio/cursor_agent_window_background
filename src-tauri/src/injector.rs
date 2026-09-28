@@ -3,25 +3,19 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tungstenite::{connect, Message};
 
-use crate::models::{DisplaySettings, MediaKind};
-use crate::payload::{install_script, AGENT_PROBE, CLEANUP_SCRIPT};
+use crate::payload::{AGENT_PROBE, CLEANUP_SCRIPT};
 
-pub fn inject_media(
-    port: u16,
-    media_url: &str,
-    kind: &MediaKind,
-    display: &DisplaySettings,
-    revision: &str,
-) -> Result<u32, String> {
-    let script = install_script(media_url, kind, display, revision)?;
-    apply_to_agent_pages(port, &script)
+pub fn inject_script(port: u16, script: &str, revision: &str) -> Result<u32, String> {
+    let revision = serde_json::to_string(revision).map_err(|error| error.to_string())?;
+    let installed = format!("window.__CURSOR_AGENT_BACKGROUND_STUDIO__?.revision==={revision}");
+    apply_to_agent_pages(port, script, Some(&installed))
 }
 
 pub fn clear_agent_pages(port: u16) -> Result<u32, String> {
-    apply_to_agent_pages(port, CLEANUP_SCRIPT)
+    apply_to_agent_pages(port, CLEANUP_SCRIPT, None)
 }
 
-fn apply_to_agent_pages(port: u16, script: &str) -> Result<u32, String> {
+fn apply_to_agent_pages(port: u16, script: &str, installed: Option<&str>) -> Result<u32, String> {
     let mut applied = 0;
     for page in list_pages(port)? {
         let url = page
@@ -34,6 +28,13 @@ fn apply_to_agent_pages(port: u16, script: &str) -> Result<u32, String> {
         if probe.as_bool() != Some(true) {
             let _ = socket.close(None);
             continue;
+        }
+        if let Some(check) = installed {
+            if evaluate(&mut socket, check)?.as_bool() == Some(true) {
+                let _ = socket.close(None);
+                applied += 1;
+                continue;
+            }
         }
         let result = evaluate(&mut socket, script)?;
         let _ = socket.close(None);
