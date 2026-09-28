@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "pluginProtocol": 2,
+  "id": "cursor-agent",
+  "displayName": "Cursor Agent Background Studio",
+  "exeName": "Cursor Agent Background Studio.exe",
+  "pipeName": "\\\\.\\pipe\\background-studio-cursor-agent",
+  "capabilities": {
+    "commands": [
+      "hello",
+      "configure",
+      "status",
+      "apply",
+      "pause",
+      "restore",
+      "shutdown"
+    ],
+    "mediaKinds": ["image", "video"],
+    "autoTakeover": true,
+    "hotUpdate": true,
+    "loopbackMediaOnly": true,
+    "keepsTargetOnShutdown": true,
+    "maxMediaBytes": 67108864
+  },
+  "settingsSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "fit": {
+        "type": "string",
+        "title": "填充",
+        "enum": ["cover", "contain", "fill", "tile"],
+        "enumLabels": ["覆盖", "适应", "拉伸", "平铺"],
+        "default": "cover"
+      },
+      "opacity": {
+        "type": "number",
+        "title": "背景图不透明度",
+        "minimum": 0,
+        "maximum": 1,
+        "step": 0.01,
+        "default": 1
+      },
+      "blur": {
+        "type": "number",
+        "title": "模糊",
+        "minimum": 0,
+        "maximum": 40,
+        "step": 1,
+        "default": 0
+      },
+      "overlayOpacity": {
+        "type": "number",
+        "title": "遮罩强度",
+        "minimum": 0,
+        "maximum": 0.9,
+        "step": 0.01,
+        "default": 0
+      },
+      "sidebarOpacity": {
+        "type": "number",
+        "title": "侧栏底色",
+        "minimum": 0,
+        "maximum": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      "surfaceOpacity": {
+        "type": "number",
+        "title": "聊天与文件区底色",
+        "minimum": 0,
+        "maximum": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      "composerOpacity": {
+        "type": "number",
+        "title": "气泡与输入框",
+        "minimum": 0,
+        "maximum": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      "cardOpacity": {
+        "type": "number",
+        "title": "卡片底色",
+        "minimum": 0,
+        "maximum": 1,
+        "step": 0.01,
+        "default": 0
+      },
+      "videoMuted": {
+        "type": "boolean",
+        "title": "静音播放",
+        "default": true
+      },
+      "videoPlaybackRate": {
+        "type": "number",
+        "title": "播放速度",
+        "minimum": 0.25,
+        "maximum": 2,
+        "step": 0.25,
+        "default": 1
+      }
+    }
+  }
+}
