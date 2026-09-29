@@ -79,6 +79,6 @@ jobs:
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
           Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath
           $tag = "${{ github.ref_name }}"
-          $ghArgs = @("release", "create", $tag, $zipPath, "--title", "Cursor Agent Background Studio $tag", "--notes", "Cursor Agent 窗口背景插件 $tag。只注入 Agent 窗口，编辑器窗口不贴图。")
+          $ghArgs = @("release", "create", $tag, $zipPath, "--title", "Cursor Agent Background Studio $tag", "--notes-file", "docs/releases/$version.md")
           if ($tag -match "-") { $ghArgs += "--prerelease" }
           gh @ghArgs

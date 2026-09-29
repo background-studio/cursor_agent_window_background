@@ -30,6 +30,7 @@ pub struct PluginCapabilities {
     pub keeps_target_on_shutdown: bool,
     pub loopback_media_only: bool,
     pub max_media_bytes: u64,
+    pub per_window_media: bool,
 }
 
 pub const CAPABILITIES: PluginCapabilities = PluginCapabilities {
@@ -47,7 +48,8 @@ pub const CAPABILITIES: PluginCapabilities = PluginCapabilities {
     hot_update: true,
     keeps_target_on_shutdown: true,
     loopback_media_only: true,
-    max_media_bytes: crate::protocol::MAX_MEDIA_BYTES,
+    max_media_bytes: 16 * 1024 * 1024,
+    per_window_media: true,
 };
 
 pub fn hello_result() -> Value {
@@ -72,8 +74,9 @@ mod tests {
         assert_eq!(manifest["pipeName"], PIPE_NAME);
         assert_eq!(
             manifest["capabilities"]["maxMediaBytes"],
-            crate::protocol::MAX_MEDIA_BYTES
+            CAPABILITIES.max_media_bytes
         );
+        assert_eq!(manifest["capabilities"]["perWindowMedia"], true);
         assert_eq!(
             manifest["settingsSchema"]["properties"]["opacity"]["default"],
             1.0

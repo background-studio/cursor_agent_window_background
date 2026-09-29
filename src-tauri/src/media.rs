@@ -138,6 +138,8 @@ mod tests {
                 byte_size: bytes.len() as u64,
             },
             display: DisplaySettings::default(),
+            independent_windows: false,
+            target_id: None,
         }
     }
 

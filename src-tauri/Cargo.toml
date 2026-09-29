@@ -1,6 +1,6 @@
 [package]
 name = "cursor-agent-background-studio"
-version = "0.1.3"
+version = "0.1.4-beta.1"
 description = "A headless Background Studio worker for the Cursor Agents window."
 authors = ["Background Studio contributors"]
 license = "MIT"

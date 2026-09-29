@@ -34,6 +34,8 @@ pub struct ConfigureSpec {
     pub revision: String,
     pub media: MediaSpec,
     pub display: DisplaySettings,
+    pub independent_windows: bool,
+    pub target_id: Option<String>,
 }
 
 pub fn parse_request_line(line: &str) -> Result<PluginRequest, String> {
@@ -114,6 +116,16 @@ pub fn parse_configure(params: &Value) -> Result<ConfigureSpec, String> {
         .ok_or_else(|| "configure 缺少 display。".to_string())?;
     validate_display(display)?;
     let display = DisplaySettings::from_value(display);
+    let independent_windows = match params.get("independentWindows") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        _ => return Err("independentWindows 必须是布尔值。".to_string()),
+    };
+    let target_id = match params.get("targetId") {
+        None => None,
+        Some(Value::String(id)) if independent_windows && valid_target_id(id) => Some(id.clone()),
+        _ => return Err("targetId 无效或未启用独立窗口模式。".to_string()),
+    };
     Ok(ConfigureSpec {
         revision: revision.to_string(),
         media: MediaSpec {
@@ -124,7 +136,17 @@ pub fn parse_configure(params: &Value) -> Result<ConfigureSpec, String> {
             byte_size,
         },
         display,
+        independent_windows,
+        target_id,
     })
+}
+
+pub fn valid_target_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == b'-' || ch == b'_')
 }
 
 pub fn validate_configure_url(value: &str) -> Result<Url, String> {
@@ -399,5 +421,34 @@ mod tests {
         assert_eq!(spec.media.sha256, "a".repeat(64));
         assert_eq!(spec.display.opacity, 0.4);
         assert_eq!(spec.display.sidebar_opacity, 0.2);
+    }
+
+    #[test]
+    fn validates_targeted_configure_without_changing_legacy_default() {
+        let mut params = json!({
+            "schemaVersion": 1, "revision": "r",
+            "media": {"url": "http://127.0.0.1:9/file", "kind": "image", "mimeType": "image/png", "sha256": "a".repeat(64), "byteSize": 16},
+            "display": {}
+        });
+        assert!(!parse_configure(&params).unwrap().independent_windows);
+        params["targetId"] = json!("agent-A");
+        assert!(parse_configure(&params).is_err());
+        params["independentWindows"] = json!(true);
+        assert_eq!(
+            parse_configure(&params).unwrap().target_id.as_deref(),
+            Some("agent-A")
+        );
+        for target in [
+            json!(""),
+            json!("../other"),
+            json!(1),
+            json!("a".repeat(65)),
+        ] {
+            params["targetId"] = target;
+            assert!(parse_configure(&params).is_err());
+        }
+        params.as_object_mut().unwrap().remove("targetId");
+        params["independentWindows"] = json!("true");
+        assert!(parse_configure(&params).is_err());
     }
 }

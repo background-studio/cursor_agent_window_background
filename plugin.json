@@ -20,7 +20,8 @@
     "hotUpdate": true,
     "loopbackMediaOnly": true,
     "keepsTargetOnShutdown": true,
-    "maxMediaBytes": 67108864
+    "maxMediaBytes": 16777216,
+    "perWindowMedia": true
   },
   "settingsSchema": {
     "type": "object",
