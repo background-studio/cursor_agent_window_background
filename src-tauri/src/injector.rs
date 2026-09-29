@@ -7,7 +7,9 @@ use crate::payload::{AGENT_PROBE, CLEANUP_SCRIPT};
 
 pub fn inject_script(port: u16, script: &str, revision: &str) -> Result<u32, String> {
     let revision = serde_json::to_string(revision).map_err(|error| error.to_string())?;
-    let installed = format!("window.__CURSOR_AGENT_BACKGROUND_STUDIO__?.revision==={revision}");
+    let installed = format!(
+        "window.__CURSOR_AGENT_BACKGROUND_STUDIO__?.revision==={revision}&&window.__CURSOR_AGENT_BACKGROUND_STUDIO__?.isHealthy?.()===true"
+    );
     apply_to_agent_pages(port, script, Some(&installed))
 }
 

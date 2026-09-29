@@ -3,12 +3,13 @@ use serde::Serialize;
 use crate::models::{DisplaySettings, MediaKind};
 
 const TEMPLATE: &str = r#"(config=>{
-  const agent=document.body&&document.body.classList.contains("bc-window")&&document.querySelector(".agent-panel");
+  const agent=__AGENT_PROBE__;
   if(!agent)return{installed:false};
   const STATE="__CURSOR_AGENT_BACKGROUND_STUDIO__";
   const previous=window[STATE];
-  if(previous&&previous.revision===config.revision)return{installed:true,unchanged:true};
+  if(previous&&previous.revision===config.revision&&previous.isHealthy?.())return{installed:true,unchanged:true};
   try{previous&&previous.cleanup&&previous.cleanup();}catch(e){}
+  document.body.setAttribute("data-cbg-cursor-agent-active","1");
   const style=document.createElement("style");
   style.id="cbg-cursor-agent-style";
   style.textContent=config.css;
@@ -30,7 +31,10 @@ const TEMPLATE: &str = r#"(config=>{
   document.body.prepend(layer);
   const rgba=(opacity)=>"rgba(12,12,14,"+Number(opacity||0)+")";
   const dark=(value)=>/oklch\(|color\(srgb 0\.1|rgba\(0,\s*0,\s*0,\s*0\.[2-9]|rgba\(0,\s*0,\s*0,\s*1\)/.test(value||"");
+  const originals=new Map();
+  const properties=["background-color","background-image","box-shadow","backdrop-filter"];
   const paint=(el,opacity)=>{
+    if(!originals.has(el))originals.set(el,properties.map(name=>[name,el.style.getPropertyValue(name),el.style.getPropertyPriority(name)]));
     el.setAttribute("data-cbg-cursor-agent","1");
     el.style.setProperty("background-color",rgba(opacity),"important");
     el.style.setProperty("background-image","none","important");
@@ -38,7 +42,7 @@ const TEMPLATE: &str = r#"(config=>{
     el.style.setProperty("backdrop-filter","none","important");
   };
   const visit=(el)=>{
-    if(!el||el.nodeType!==1||el.id==="cbg-cursor-agent-layer"||el.id==="cbg-cursor-agent-style")return;
+    if(!el||el.nodeType!==1||el.id==="cbg-cursor-agent-layer"||el.id==="cbg-cursor-agent-style"||el.matches('[data-component="glass-in-app-menubar"]'))return;
     const rect=el.getBoundingClientRect();
     const plate=rect.width>160&&rect.height>48&&rect.bottom>0&&rect.top<innerHeight;
     const name=String(el.className||"");
@@ -50,33 +54,62 @@ const TEMPLATE: &str = r#"(config=>{
     for(const child of el.children)visit(child);
   };
   let frame=0;
+  let controlsFrame=0;
+  let restoreControls=null;
+  let disposed=false;
+  const repairedBars=new WeakSet();
+  const repairWindowControls=()=>{
+    const bar=document.querySelector('[data-component="glass-in-app-menubar"]');
+    const overlay=navigator.windowControlsOverlay;
+    if(!bar||!overlay?.visible||restoreControls||repairedBars.has(bar))return;
+    const height=parseFloat(getComputedStyle(bar).height);
+    const rect=bar.getBoundingClientRect();
+    const controls=overlay.getTitlebarAreaRect();
+    // The native overlay may retain a bad height across windows. Never use a
+    // zoomed bounding rectangle as a CSS height or freeze the menu's layout.
+    if(!(height>0&&height<128&&rect.height>0)||controls.height<=rect.height*2)return;
+    repairedBars.add(bar);
+    const saved=["height","min-height","max-height"].map(name=>[name,bar.style.getPropertyValue(name),bar.style.getPropertyPriority(name)]);
+    restoreControls=()=>{
+      for(const [name,value,priority] of saved){
+        if(value)bar.style.setProperty(name,value,priority);else bar.style.removeProperty(name);
+      }
+      restoreControls=null;
+    };
+    for(const [name] of saved)bar.style.setProperty(name,(height+1)+"px","important");
+    // Two frames allow Cursor's ResizeObserver to publish the bounded native
+    // height, then publish the original height after restoring all properties.
+    controlsFrame=requestAnimationFrame(()=>{
+      controlsFrame=requestAnimationFrame(()=>{if(!disposed)restoreControls?.();});
+    });
+  };
   const observer=new MutationObserver(()=>{
     cancelAnimationFrame(frame);
-    frame=requestAnimationFrame(()=>visit(document.body));
+    frame=requestAnimationFrame(()=>{if(!disposed){visit(document.body);repairWindowControls();}});
   });
   observer.observe(document.body,{childList:true,subtree:true});
   visit(document.body);
-  const bar=document.querySelector('[data-component="glass-in-app-menubar"]');
-  if(bar){
-    bar.style.setProperty("background-color","rgba(0,0,0,0)","important");
-    const height=Math.round(bar.getBoundingClientRect().height)||36;
-    bar.style.height=(height+6)+"px";
-    requestAnimationFrame(()=>{bar.style.height=height+"px";});
-  }
+  repairWindowControls();
   const cleanup=()=>{
+    disposed=true;
     observer.disconnect();
+    cancelAnimationFrame(frame);
+    cancelAnimationFrame(controlsFrame);
+    restoreControls?.();
     style.remove();
     layer.remove();
-    document.querySelectorAll("[data-cbg-cursor-agent]").forEach((el)=>{
-      el.style.removeProperty("background-color");
-      el.style.removeProperty("background-image");
-      el.style.removeProperty("box-shadow");
-      el.style.removeProperty("backdrop-filter");
+    document.body.removeAttribute("data-cbg-cursor-agent-active");
+    for(const [el,values] of originals){
+      for(const [name,value,priority] of values){
+        if(value)el.style.setProperty(name,value,priority);else el.style.removeProperty(name);
+      }
       el.removeAttribute("data-cbg-cursor-agent");
-    });
+    }
+    originals.clear();
     if(window[STATE]&&window[STATE].revision===config.revision)delete window[STATE];
   };
-  window[STATE]={revision:config.revision,cleanup};
+  const isHealthy=()=>!disposed&&style.isConnected&&layer.isConnected&&document.body.hasAttribute("data-cbg-cursor-agent-active");
+  window[STATE]={revision:config.revision,cleanup,isHealthy};
   return{installed:true};
 })(__CONFIG_JSON__)"#;
 
@@ -93,7 +126,7 @@ struct ScriptConfig<'a> {
 pub fn agent_css(display: &DisplaySettings) -> String {
     format!(
         r#"
-body.bc-window {{
+body[data-cbg-cursor-agent-active] {{
   --cbg-opacity: {opacity};
   --cbg-overlay-opacity: {overlay};
   --cbg-sidebar-opacity: {sidebar};
@@ -106,7 +139,7 @@ body.bc-window {{
   position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
   opacity: var(--cbg-opacity);
 }}
-html:has(#background-cover-style) body.bc-window::before {{
+html:has(#background-cover-style) body[data-cbg-cursor-agent-active]::before {{
   content: none !important;
   display: none !important;
   background-image: none !important;
@@ -118,34 +151,37 @@ html:has(#background-cover-style) body.bc-window::before {{
 #cbg-cursor-agent-overlay {{
   position: absolute; inset: 0; background: {color}; opacity: var(--cbg-overlay-opacity);
 }}
-body.bc-window .agent-panel,
-body.bc-window .editor-panel-container,
-body.bc-window .ui-tray {{
+/* Cursor forwards this computed color to Electron's native titleBarOverlay.
+   Keep it in RGBA: OKLCH is valid CSS but prevents native controls updating. */
+body[data-cbg-cursor-agent-active] [data-component="glass-in-app-menubar"] {{
+  background-color: rgba(12, 12, 14, 0) !important;
+}}
+body[data-cbg-cursor-agent-active] .agent-panel,
+body[data-cbg-cursor-agent-active] .editor-panel-container,
+body[data-cbg-cursor-agent-active] .ui-tray {{
   background: rgba(12, 12, 14, var(--cbg-surface-opacity)) !important;
   background-color: rgba(12, 12, 14, var(--cbg-surface-opacity)) !important;
   background-image: none !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
 }}
-body.bc-window[data-cursor-glass-mode="true"] .composer-human-message.standalone-glass,
-body[data-cursor-glass-mode="true"].bc-window .composer-human-message.standalone-glass,
-body.bc-window[data-cursor-glass-mode="true"] .composer-human-message-container .ui-prompt-input__container,
-body.bc-window .ui-prompt-input__container,
-body.bc-window .composer-human-message {{
+body[data-cbg-cursor-agent-active][data-cursor-glass-mode="true"] .composer-human-message.standalone-glass,
+body[data-cbg-cursor-agent-active][data-cursor-glass-mode="true"] .composer-human-message-container .ui-prompt-input__container,
+body[data-cbg-cursor-agent-active] .ui-prompt-input__container,
+body[data-cbg-cursor-agent-active] .composer-human-message {{
   background: rgba(12, 12, 14, var(--cbg-composer-opacity)) !important;
   background-color: rgba(12, 12, 14, var(--cbg-composer-opacity)) !important;
   border-color: transparent !important;
   box-shadow: none !important;
 }}
-body.bc-window .ui-markdown__inline-code,
-body.bc-window code,
-body.bc-window .ui-pill,
-body.bc-window .ui-tab-system-tab,
-body.bc-window .ui-sidebar-menu-button,
-body.bc-window .ui-sidebar-menu-button::before,
-body.bc-window .ui-icon-button,
-body.bc-window .ui-prompt-input-submit-button,
-body.bc-window [data-component="glass-in-app-menubar"] {{
+body[data-cbg-cursor-agent-active] .ui-markdown__inline-code,
+body[data-cbg-cursor-agent-active] code,
+body[data-cbg-cursor-agent-active] .ui-pill,
+body[data-cbg-cursor-agent-active] .ui-tab-system-tab,
+body[data-cbg-cursor-agent-active] .ui-sidebar-menu-button,
+body[data-cbg-cursor-agent-active] .ui-sidebar-menu-button::before,
+body[data-cbg-cursor-agent-active] .ui-icon-button:not([data-component="glass-in-app-menubar"] *),
+body[data-cbg-cursor-agent-active] .ui-prompt-input-submit-button {{
   background: transparent !important;
   background-color: transparent !important;
   background-image: none !important;
@@ -195,16 +231,56 @@ pub fn install_script(
     })
     .map_err(|error| error.to_string())?
     .replace('<', "\\u003c");
-    Ok(TEMPLATE.replace("__CONFIG_JSON__", &config))
+    Ok(TEMPLATE
+        .replace("__AGENT_PROBE__", AGENT_PROBE)
+        .replace("__CONFIG_JSON__", &config))
 }
 
-pub const AGENT_PROBE: &str = "Boolean(document.body&&document.body.classList.contains('bc-window')&&document.querySelector('.agent-panel'))";
+pub const AGENT_PROBE: &str = "Boolean(document.body&&document.querySelector('.agent-panel')&&(document.body.classList.contains('bc-window')||document.querySelector('[data-component=\"glass-in-app-menubar\"]')))";
 
 pub const CLEANUP_SCRIPT: &str = r#"(()=>{const state=window.__CURSOR_AGENT_BACKGROUND_STUDIO__;if(state&&state.cleanup)state.cleanup();return true;})()"#;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    #[test]
+    fn javascript_window_lifecycle_regressions() {
+        let script = install_script(
+            "data:image/png;base64,AAAA",
+            &MediaKind::Image,
+            &DisplaySettings::default(),
+            "test-revision",
+        )
+        .unwrap();
+        let mut child = Command::new("node")
+            .arg("tests/payload-runtime.cjs")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Node.js is required for payload regression tests");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                serde_json::json!({ "script": script, "probe": AGENT_PROBE })
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn script_guards_editor_windows_and_covers_verified_selectors() {
@@ -221,7 +297,28 @@ mod tests {
         assert!(script.contains(".ui-tray"));
         assert!(script.contains("--glass-chat-bubble-background"));
         assert!(script.contains("glass-in-app-menubar"));
-        assert!(script.contains("#background-cover-style) body.bc-window::before"));
+        assert!(
+            script.contains("#background-cover-style) body[data-cbg-cursor-agent-active]::before")
+        );
+        assert!(script.contains(AGENT_PROBE));
+        assert!(!script.contains("__AGENT_PROBE__"));
+        assert!(!agent_css(&DisplaySettings::default()).contains("bc-window"));
         assert!(script.contains("installed:false"));
+    }
+
+    #[test]
+    fn native_menubar_color_is_supported_without_overriding_layout() {
+        let css = agent_css(&DisplaySettings::default());
+        let rule = css
+            .split("body[data-cbg-cursor-agent-active] [data-component=\"glass-in-app-menubar\"] {")
+            .nth(1)
+            .unwrap()
+            .split('}')
+            .next()
+            .unwrap();
+        assert!(rule.contains("background-color: rgba(12, 12, 14, 0) !important"));
+        assert!(!rule.contains("height"));
+        assert!(!rule.contains("display"));
+        assert!(!rule.contains("position"));
     }
 }
