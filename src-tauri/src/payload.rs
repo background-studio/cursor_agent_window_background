@@ -152,9 +152,10 @@ html:has(#background-cover-style) body[data-cbg-cursor-agent-active]::before {{
   position: absolute; inset: 0; background: {color}; opacity: var(--cbg-overlay-opacity);
 }}
 /* Cursor forwards this computed color to Electron's native titleBarOverlay.
-   Keep it in RGBA: OKLCH is valid CSS but prevents native controls updating. */
+   Keep it in RGBA: OKLCH is valid CSS but prevents native controls updating.
+   Match the agent panel tint so the title bar and main page share one opacity. */
 body[data-cbg-cursor-agent-active] [data-component="glass-in-app-menubar"] {{
-  background-color: rgba(12, 12, 14, 0) !important;
+  background-color: rgba(12, 12, 14, var(--cbg-surface-opacity)) !important;
 }}
 body[data-cbg-cursor-agent-active] .agent-panel,
 body[data-cbg-cursor-agent-active] .editor-panel-container,
@@ -316,7 +317,8 @@ mod tests {
             .split('}')
             .next()
             .unwrap();
-        assert!(rule.contains("background-color: rgba(12, 12, 14, 0) !important"));
+        assert!(rule
+            .contains("background-color: rgba(12, 12, 14, var(--cbg-surface-opacity)) !important"));
         assert!(!rule.contains("height"));
         assert!(!rule.contains("display"));
         assert!(!rule.contains("position"));
