@@ -1,8 +1,8 @@
 # Cursor Agent Background Studio
 
-Background Studio 的 Cursor Agent 窗口背景插件，版本 0.1.4。
+Background Studio 的 Cursor Agent 窗口背景插件，版本 0.1.5。
 
-[本版发布说明](docs/releases/0.1.4.md)。独立窗口媒体分发需要配套 Background Studio 0.3.6 或更高版本。
+[本版发布说明](docs/releases/0.1.5.md)。独立窗口媒体分发需要配套 Background Studio 0.3.6 或更高版本。
 
 它只给带 `.agent-panel` 的 Agent 窗口贴背景。编辑器窗口不注入。调试口只监听 `127.0.0.1`，用户目录仍用原来的 `%APPDATA%\Cursor`，不另开空配置。
 
